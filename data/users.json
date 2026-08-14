@@ -6,8 +6,6 @@
     "password": "ujjwal7077",
     "isAdmin": true,
     "role": "Admin & Creator",
-    "isLoggedIn": false,
-    "favorites": [],
-    "avatar": ""
+    "isLoggedIn": true
   }
 }
