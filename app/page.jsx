@@ -911,7 +911,7 @@ export default function Home() {
               type="button"
               className="nav-signup-left-btn"
               onClick={() => {
-                setAuthTab("signup");
+                setAuthTab("login");
                 setIsAuthModalOpen(true);
               }}
             >
