@@ -7,29 +7,31 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const cwd = process.cwd();
+    const validExtensions = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".svg"];
 
-    // Check target directories
-    const rootDir = path.join(/*turbopackIgnore: true*/ cwd, "login profile ");
-    const publicTargetDir = path.join(/*turbopackIgnore: true*/ cwd, "public", "login-profile");
+    // Target directories
+    const rootDir = path.join(cwd, "login profile ");
+    const publicTargetDir = path.join(cwd, "public", "login-profile");
 
     // Ensure target public directory exists
     if (!fs.existsSync(publicTargetDir)) {
       fs.mkdirSync(publicTargetDir, { recursive: true });
     }
 
-    // Automatically sync any newly added images from root folder to public folder
+    const activeRootFiles = new Set();
+
+    // 1. Sync active images from root folder -> public target folder
     if (fs.existsSync(rootDir)) {
       const files = fs.readdirSync(rootDir);
       for (const file of files) {
         if (file.startsWith("._") || file.startsWith(".")) continue;
         const ext = path.extname(file).toLowerCase();
-        if ([".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".svg"].includes(ext)) {
-          const srcPath = path.join(/*turbopackIgnore: true*/ rootDir, file);
-          const destPath = path.join(/*turbopackIgnore: true*/ publicTargetDir, file);
+        if (validExtensions.includes(ext)) {
+          activeRootFiles.add(file);
+          const srcPath = path.join(rootDir, file);
+          const destPath = path.join(publicTargetDir, file);
           try {
-            if (!fs.existsSync(destPath)) {
-              fs.copyFileSync(srcPath, destPath);
-            }
+            fs.copyFileSync(srcPath, destPath);
           } catch (err) {
             console.error("Error syncing login profile image file:", file, err);
           }
@@ -37,9 +39,30 @@ export async function GET() {
       }
     }
 
-    // Read all valid image files in public/login-profile
-    const publicFiles = fs.readdirSync(publicTargetDir);
-    const validExtensions = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".svg"];
+    // 2. Remove orphaned image files in public target directory if deleted from root directory
+    if (fs.existsSync(publicTargetDir)) {
+      const publicFiles = fs.readdirSync(publicTargetDir);
+      for (const file of publicFiles) {
+        if (file.startsWith("._") || file.startsWith(".")) continue;
+        const ext = path.extname(file).toLowerCase();
+        if (validExtensions.includes(ext)) {
+          // If file was deleted from root folder (and root folder exists), remove it from public folder
+          if (fs.existsSync(rootDir) && !activeRootFiles.has(file)) {
+            const orphanPath = path.join(publicTargetDir, file);
+            try {
+              if (fs.existsSync(orphanPath)) {
+                fs.unlinkSync(orphanPath);
+              }
+            } catch (err) {
+              console.error("Error cleaning up deleted login profile image:", file, err);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Read active image files in public/login-profile
+    const publicFiles = fs.existsSync(publicTargetDir) ? fs.readdirSync(publicTargetDir) : [];
 
     const imageFiles = publicFiles
       .filter((file) => {
@@ -49,7 +72,7 @@ export async function GET() {
       })
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
 
-    // Map to slide objects
+    // 4. Map to slide objects for frontend slideshow UI
     const images = imageFiles.map((filename, index) => {
       let title = "Selected Works";
       if (index === 1) title = "Featured Works";
