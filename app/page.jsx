@@ -36,6 +36,7 @@ import {
   ToggleLeft,
   ToggleRight
 } from "lucide-react";
+import { optimizeImageFile, optimizeImageUrl, formatBytes, classifyAspectRatio } from "../lib/imageOptimizer";
 
 // Helper to format image URLs gracefully
 const formatImageUrl = (url) => {
@@ -219,6 +220,13 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [copiedId, setCopiedId] = useState(null);
 
+  // Automatic Image Optimizer State
+  const [optReport, setOptReport] = useState(null);
+  const [isOptimizerModalOpen, setIsOptimizerModalOpen] = useState(false);
+  const [optimizerBatchResults, setOptimizerBatchResults] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
   // User Authentication & Session State
   const [currentUser, setCurrentUser] = useState(null); // null when logged out, user obj when logged in
   const [userAvatar, setUserAvatar] = useState("");
@@ -397,7 +405,7 @@ export default function Home() {
     setPrompts(updatedList);
     try {
       localStorage.setItem("promptverse_gallery_v1", JSON.stringify(updatedList));
-    } catch (err) {}
+    } catch (err) { }
 
     if (selected && selected.id === id) {
       setSelected({ ...selected, likes: newLikes });
@@ -409,7 +417,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "set_likes", id, likes: newLikes })
       });
-    } catch (err) {}
+    } catch (err) { }
   };
 
   // Re-order Prompt position up/down for Admin (ujjwal@gmail.com)
@@ -428,7 +436,7 @@ export default function Home() {
     setPrompts(updated);
     try {
       localStorage.setItem("promptverse_gallery_v1", JSON.stringify(updated));
-    } catch (err) {}
+    } catch (err) { }
 
     try {
       await fetch("/api/prompts", {
@@ -436,7 +444,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompts: updated })
       });
-    } catch (err) {}
+    } catch (err) { }
   };
 
   // Fetch prompts, avatar, and user session from secure Backend API on mount
@@ -780,12 +788,12 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
         isIdentityMode && isImageEditMode
           ? "Copied with Image Edit & Identity Rules! 🖼️👤"
           : isIdentityMode
-          ? "Copied with Same Person Identity Rule! 👤✨"
-          : isImageEditMode
-          ? "Copied with Image Editing Rule! 🖼️✨"
-          : isHtmlMode
-          ? "Copied with HTML Web Design prefix! 💻✨"
-          : "Prompt copied to clipboard! ✨"
+            ? "Copied with Same Person Identity Rule! 👤✨"
+            : isImageEditMode
+              ? "Copied with Image Editing Rule! 🖼️✨"
+              : isHtmlMode
+                ? "Copied with HTML Web Design prefix! 💻✨"
+                : "Prompt copied to clipboard! ✨"
       );
       setTimeout(() => setCopiedId(null), 1800);
     }
@@ -953,64 +961,118 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
     }
   };
 
-  // Helper function to auto-resize and compress uploaded images
-  const resizeAndCompressImage = (file, maxDimension = 1000, quality = 0.85) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          let width = img.width;
-          let height = img.height;
-
-          // Scale down proportionally if larger than maxDimension
-          if (width > maxDimension || height > maxDimension) {
-            if (width > height) {
-              height = Math.round((height * maxDimension) / width);
-              width = maxDimension;
-            } else {
-              width = Math.round((width * maxDimension) / height);
-              height = maxDimension;
-            }
-          }
-
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, width, height);
-
-          let resizedDataUrl = canvas.toDataURL("image/webp", quality);
-          if (!resizedDataUrl.startsWith("data:image/webp")) {
-            resizedDataUrl = canvas.toDataURL("image/jpeg", quality);
-          }
-          resolve(resizedDataUrl);
-        };
-        img.onerror = (err) => reject(err);
-        img.src = e.target.result;
-      };
-      reader.onerror = (err) => reject(err);
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // Handle local image file upload with automatic resizing
+  // Automatic Image Optimizer Handler (Single file for prompt upload)
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      showToast("Optimizing & resizing image... ⏳");
+      showToast("Auto-detecting aspect ratio & optimizing image... ⏳");
+      setIsOptimizing(true);
       try {
-        const resizedUrl = await resizeAndCompressImage(file, 1000, 0.85);
+        const report = await optimizeImageFile(file, { quality: 0.82, preferredFormat: "image/webp" });
+        setOptReport(report);
         setFormData((prev) => ({
           ...prev,
-          imageUrl: resizedUrl
+          imageUrl: report.optimized.dataUrl
         }));
-        showToast("Image auto-resized & ready! 📷✨");
+        showToast(`Optimized ${report.category.badge}! Saved ${report.percentSaved}% 🎉`);
       } catch (err) {
-        showToast("Failed to process image file");
+        showToast(`Error: ${err.message || "Failed to optimize image file"}`);
+      } finally {
+        setIsOptimizing(false);
       }
     }
+  };
+
+  // Automatic Remote Image URL Optimizer Handler
+  const handleOptimizeUrlInput = async (urlInput = null) => {
+    const targetUrl = urlInput || formData.imageUrl;
+    if (!targetUrl || !targetUrl.trim()) {
+      showToast("Please enter an image URL!");
+      return;
+    }
+    showToast("Fetching remote image & auto-optimizing URL... ⏳");
+    setIsOptimizing(true);
+    try {
+      const report = await optimizeImageUrl(targetUrl, { quality: 0.82, preferredFormat: "image/webp" });
+      setOptReport(report);
+      setFormData((prev) => ({
+        ...prev,
+        imageUrl: report.optimized.dataUrl
+      }));
+      showToast(`URL image optimized! ${report.category.badge} • Saved ${report.percentSaved}% 🎉`);
+      return report;
+    } catch (err) {
+      showToast(`Error: ${err.message || "Failed to optimize image URL"}`);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  // Batch Image Optimization Handler (For standalone optimizer tool & drag-and-drop)
+  const handleBatchOptimization = async (fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    setIsOptimizing(true);
+    const newReports = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const report = await optimizeImageFile(file, { quality: 0.82, preferredFormat: "image/webp" });
+        newReports.push(report);
+        successCount++;
+      } catch (err) {
+        failCount++;
+        showToast(`Error: ${err.message || "Failed to process " + file.name}`);
+      }
+    }
+
+    setOptimizerBatchResults((prev) => [...newReports, ...prev]);
+    setIsOptimizing(false);
+
+    if (successCount > 0) {
+      showToast(`Optimization complete! ${successCount} image(s) processed to WebP 🎉`);
+    }
+  };
+
+  // Download All Optimized Images in Batch
+  const handleDownloadAll = () => {
+    if (optimizerBatchResults.length === 0) return;
+    optimizerBatchResults.forEach((item, i) => {
+      setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = item.optimized.dataUrl;
+        link.download = item.fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, i * 250);
+    });
+    showToast(`Downloading all ${optimizerBatchResults.length} optimized images... 🚀`);
+  };
+
+  // Drag and Drop Event Handlers
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleBatchOptimization(e.dataTransfer.files);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
   };
 
   // Filtered & Sorted prompts
@@ -1100,6 +1162,15 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
               )}
             </button>
           )}
+
+          <button
+            type="button"
+            className="nav-tab nav-opt-btn"
+            onClick={() => setIsOptimizerModalOpen(true)}
+            title="Automatic Image Optimizer (Batch, Drag & Drop, Aspect Ratio Classifier)"
+          >
+            <Sparkles size={15} /> <span>Image Optimizer</span>
+          </button>
 
           {isAdmin && (
             <button className="submit" onClick={openCreateModal}>
@@ -1235,6 +1306,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                       key={formatImageUrl(p.imageUrl)}
                       src={formatImageUrl(p.imageUrl)}
                       alt={p.title}
+                      loading="lazy"
                       referrerPolicy="no-referrer"
                       className="visual-img"
                       onLoad={(e) => {
@@ -1403,7 +1475,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                           method: "PUT",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ action: "update", promptData: updatedSelected })
-                        }).catch(() => {});
+                        }).catch(() => { });
                         showToast(updatedHtmlMode ? "HTML Design Mode ON 🟢" : "HTML Design Mode OFF ⚪");
                       }}
                     >
@@ -1425,7 +1497,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                           method: "PUT",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ action: "update", promptData: updatedSelected })
-                        }).catch(() => {});
+                        }).catch(() => { });
                         showToast(updatedImgMode ? "Image Edit Rule ON 🟢" : "Image Edit Rule OFF ⚪");
                       }}
                     >
@@ -1447,7 +1519,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                           method: "PUT",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ action: "update", promptData: updatedSelected })
-                        }).catch(() => {});
+                        }).catch(() => { });
                         showToast(updatedIdent ? "Identity Reference Rule ON 🟢" : "Identity Reference Rule OFF ⚪");
                       }}
                     >
@@ -1480,7 +1552,21 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                     {copiedId === selected.id ? " Copied!" : " Copy"}
                   </button>
                 </div>
-                <p className="prompt">{selected.text}</p>
+                <pre className="prompt prompt-code-formatted">
+                  {(() => {
+                    if (!selected.text || typeof selected.text !== "string") return "";
+                    const trimmed = selected.text.trim();
+                    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+                      try {
+                        const parsed = JSON.parse(trimmed);
+                        return JSON.stringify(parsed, null, 2);
+                      } catch (e) {
+                        return selected.text;
+                      }
+                    }
+                    return selected.text;
+                  })()}
+                </pre>
               </div>
 
               {selected.negative && (
@@ -1732,6 +1818,15 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                       value={formData.imageUrl}
                       onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
                     />
+                    <button
+                      type="button"
+                      className="nav-tab nav-opt-btn"
+                      style={{ padding: "8px 12px" }}
+                      onClick={() => handleOptimizeUrlInput(formData.imageUrl)}
+                      title="Auto-optimize URL image (Fetch, Resize, WebP, Aspect Ratio, Thumbnail)"
+                    >
+                      <Sparkles size={13} /> Optimize URL
+                    </button>
                     <label className="upload-btn-label">
                       <Upload size={14} /> Upload
                       <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
@@ -1744,43 +1839,61 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                     <button
                       type="button"
                       className="preset-pill"
-                      onClick={() => setFormData({ ...formData, imageUrl: "https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=800&auto=format&fit=crop" })}
+                      onClick={() => handleOptimizeUrlInput("https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=800&auto=format&fit=crop")}
                     >
                       🌆 Cyberpunk
                     </button>
                     <button
                       type="button"
                       className="preset-pill"
-                      onClick={() => setFormData({ ...formData, imageUrl: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&auto=format&fit=crop" })}
+                      onClick={() => handleOptimizeUrlInput("https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&auto=format&fit=crop")}
                     >
                       ⚔️ Samurai
                     </button>
                     <button
                       type="button"
                       className="preset-pill"
-                      onClick={() => setFormData({ ...formData, imageUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop" })}
+                      onClick={() => handleOptimizeUrlInput("https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop")}
                     >
                       ✨ Neon Portrait
                     </button>
                     <button
                       type="button"
                       className="preset-pill"
-                      onClick={() => setFormData({ ...formData, imageUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop" })}
+                      onClick={() => handleOptimizeUrlInput("https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop")}
                     >
                       🏛️ Architecture
                     </button>
                   </div>
 
                   {formData.imageUrl && (
-                    <div className="image-status-bar">
-                      <span>✓ Image URL loaded</span>
-                      <button
-                        type="button"
-                        className="remove-img-btn"
-                        onClick={() => setFormData({ ...formData, imageUrl: "" })}
-                      >
-                        Remove Image
-                      </button>
+                    <div className="image-status-bar flex-col gap-2">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-emerald-400 font-semibold text-xs">✓ Image loaded & ready</span>
+                        <button
+                          type="button"
+                          className="remove-img-btn"
+                          onClick={() => {
+                            setFormData({ ...formData, imageUrl: "" });
+                            setOptReport(null);
+                          }}
+                        >
+                          Remove Image
+                        </button>
+                      </div>
+
+                      {optReport && (
+                        <div className="opt-summary-box">
+                          <div className="opt-summary-header">
+                            <span className="opt-summary-badge">{optReport.category.badge} ({optReport.category.aspectRatioStr})</span>
+                            <span className="opt-summary-saved">⚡ -{optReport.percentSaved}% Saved</span>
+                          </div>
+                          <div className="opt-summary-details">
+                            <div>Orig: {optReport.original.width}×{optReport.original.height} ({optReport.original.sizeFormatted})</div>
+                            <div className="text-emerald-400 font-bold">WebP: {optReport.optimized.width}×{optReport.optimized.height} ({optReport.optimized.sizeFormatted})</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2127,6 +2240,240 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* AUTOMATIC IMAGE OPTIMIZER & RESIZER MODAL */}
+      {isOptimizerModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsOptimizerModalOpen(false)}>
+          <div className="opt-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="opt-modal-header">
+              <div className="opt-modal-title">
+                <Sparkles size={22} className="opt-header-sparkle" />
+                <div>
+                  <h2>Automatic Image Optimizer & Resizer</h2>
+                  <p>Auto-classifies Portrait 📱, Square ⬛, Landscape 🖼️, & Banner 🚩 • No distortion • WebP conversion</p>
+                </div>
+              </div>
+              <button className="profile-close-btn" onClick={() => setIsOptimizerModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* DRAG AND DROP ZONE */}
+            <div
+              className={`opt-drop-zone ${isDragOver ? "drag-active" : ""}`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+            >
+              <Upload size={38} className="opt-upload-icon" />
+              <h3>Drag & Drop Image Files Here</h3>
+              <p>Supports multiple image files (PNG, JPG, WebP, AVIF, GIF). Automatically resizes, compresses, and generates responsive breakpoints.</p>
+              <label className="opt-browse-btn">
+                <span>Browse Local Images</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={(e) => e.target.files && handleBatchOptimization(e.target.files)}
+                  style={{ display: "none" }}
+                />
+              </label>
+            </div>
+
+            {/* URL IMAGE OPTIMIZER INPUT BAR */}
+            <div className="opt-url-bar">
+              <input
+                type="text"
+                placeholder="Or paste remote Image URL (https://...)"
+                id="modalOptUrlInput"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const val = e.target.value;
+                    if (val) {
+                      handleOptimizeUrlInput(val).then(res => {
+                        if (res) setOptimizerBatchResults(prev => [res, ...prev]);
+                      });
+                      e.target.value = "";
+                    }
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="opt-url-btn-modal"
+                onClick={() => {
+                  const input = document.getElementById("modalOptUrlInput");
+                  const val = input?.value;
+                  if (val) {
+                    handleOptimizeUrlInput(val).then(res => {
+                      if (res) setOptimizerBatchResults(prev => [res, ...prev]);
+                    });
+                    if (input) input.value = "";
+                  } else {
+                    showToast("Please enter an image URL!");
+                  }
+                }}
+              >
+                <Globe size={14} /> Optimize Image URL
+              </button>
+            </div>
+
+            {/* OPTIMIZATION PROGRESS INDICATOR */}
+            {isOptimizing && (
+              <div className="opt-progress-banner">
+                <Loader2 size={18} className="animate-spin text-orange-500" />
+                <span>Optimizing & converting image to WebP (82% quality)...</span>
+              </div>
+            )}
+
+            {/* DEFAULT CLASSIFICATION RULES REFERENCE BAR */}
+            <div className="opt-rules-bar">
+              <div className="opt-rule-chip">
+                <span className="opt-chip-title">📱 Portrait</span>
+                <span className="opt-chip-max">max 1080w × 1600h</span>
+              </div>
+              <div className="opt-rule-chip">
+                <span className="opt-chip-title">⬛ Square</span>
+                <span className="opt-chip-max">max 1200w × 1200h</span>
+              </div>
+              <div className="opt-rule-chip">
+                <span className="opt-chip-title">🖼️ Landscape</span>
+                <span className="opt-chip-max">max 1600w</span>
+              </div>
+              <div className="opt-rule-chip">
+                <span className="opt-chip-title">🚩 Banner</span>
+                <span className="opt-chip-max">max 1600w</span>
+              </div>
+            </div>
+
+            {/* BATCH RESULTS DASHBOARD */}
+            {optimizerBatchResults.length > 0 && (
+              <div className="opt-results-container">
+                <div className="opt-results-header">
+                  <h4>Optimized Images ({optimizerBatchResults.length})</h4>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="opt-action-btn primary"
+                      onClick={handleDownloadAll}
+                    >
+                      Download All Images ({optimizerBatchResults.length})
+                    </button>
+                    <button
+                      type="button"
+                      className="opt-clear-btn"
+                      onClick={() => setOptimizerBatchResults([])}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                <div className="opt-results-grid">
+                  {optimizerBatchResults.map((item, idx) => (
+                    <div key={idx} className="opt-card">
+                      {/* SIDE-BY-SIDE PREVIEWS WITH THUMBNAIL */}
+                      <div className="opt-previews-comparison">
+                        <div className="opt-thumb-box">
+                          <span className="opt-thumb-label">Original</span>
+                          <img src={item.originalPreview} alt="Original Preview" loading="lazy" />
+                          <span className="opt-thumb-meta">{item.original.width}×{item.original.height}</span>
+                        </div>
+
+                        <div className="opt-arrow-divider">➔</div>
+
+                        <div className="opt-thumb-box highlight">
+                          <span className="opt-thumb-label">Optimized</span>
+                          <img src={item.optimized.dataUrl} alt={item.fileName} loading="lazy" />
+                          <span className="opt-thumb-meta highlight">{item.optimized.width}×{item.optimized.height}</span>
+                          <span className="opt-saved-badge">⚡ -{item.percentSaved}%</span>
+                        </div>
+
+                        {item.thumbnail && (
+                          <>
+                            <div className="opt-arrow-divider">➔</div>
+                            <div className="opt-thumb-box thumb-mini">
+                              <span className="opt-thumb-label">Thumbnail</span>
+                              <img src={item.thumbnail.dataUrl} alt="Thumbnail Preview" loading="lazy" />
+                              <span className="opt-thumb-meta">{item.thumbnail.width}×{item.thumbnail.height} ({item.thumbnail.sizeFormatted})</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* DETAILS & ACTIONS */}
+                      <div className="opt-card-info">
+                        <div className="flex items-center justify-between">
+                          <h5 className="opt-file-title">{item.fileName}</h5>
+                          <span className="opt-badge-pill">{item.category.badge} ({item.category.aspectRatioStr})</span>
+                        </div>
+
+                        <div className="opt-metrics-grid">
+                          <div className="opt-metric-row">
+                            <span className="opt-metric-label">Original Size:</span>
+                            <span className="opt-metric-val">{item.original.sizeFormatted}</span>
+                          </div>
+                          <div className="opt-metric-row">
+                            <span className="opt-metric-label">Optimized Size:</span>
+                            <span className="opt-metric-val highlight">{item.optimized.sizeFormatted}</span>
+                          </div>
+                          {item.thumbnail && (
+                            <div className="opt-metric-row">
+                              <span className="opt-metric-label">Thumbnail Size:</span>
+                              <span className="opt-metric-val text-amber-400 font-bold">{item.thumbnail.sizeFormatted}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="opt-responsive-pills">
+                          <span className="opt-resp-label">Breakpoints:</span>
+                          {Object.keys(item.responsiveSizes || {}).map((bp) => (
+                            <span key={bp} className="opt-resp-pill">{bp}w ({item.responsiveSizes[bp].width}x{item.responsiveSizes[bp].height})</span>
+                          ))}
+                        </div>
+
+                        <div className="opt-card-actions">
+                          <button
+                            type="button"
+                            className="opt-action-btn"
+                            onClick={() => {
+                              navigator.clipboard.writeText(item.responsiveHtml);
+                              showToast("Copied responsive HTML <img srcset> tag! 📋");
+                            }}
+                            title="Copy responsive HTML code with srcset & sizes attributes"
+                          >
+                            <Code size={13} /> Copy HTML
+                          </button>
+
+                          {item.thumbnail && (
+                            <a
+                              href={item.thumbnail.dataUrl}
+                              download={item.thumbnail.fileName}
+                              className="opt-action-btn"
+                              title="Download lightweight WebP thumbnail image (250px)"
+                            >
+                              Download Thumbnail ({item.thumbnail.width}w)
+                            </a>
+                          )}
+
+                          <a
+                            href={item.optimized.dataUrl}
+                            download={item.fileName}
+                            className="opt-action-btn primary"
+                          >
+                            Download WebP
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
