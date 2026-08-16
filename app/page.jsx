@@ -1163,14 +1163,16 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
             </button>
           )}
 
-          <button
-            type="button"
-            className="nav-tab nav-opt-btn"
-            onClick={() => setIsOptimizerModalOpen(true)}
-            title="Automatic Image Optimizer (Batch, Drag & Drop, Aspect Ratio Classifier)"
-          >
-            <Sparkles size={15} /> <span>Image Optimizer</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="nav-tab nav-opt-btn"
+              onClick={() => setIsOptimizerModalOpen(true)}
+              title="Automatic Image Optimizer (Batch, Drag & Drop, Aspect Ratio Classifier)"
+            >
+              <Sparkles size={15} /> <span>Image Optimizer</span>
+            </button>
+          )}
 
           {isAdmin && (
             <button className="submit" onClick={openCreateModal}>
