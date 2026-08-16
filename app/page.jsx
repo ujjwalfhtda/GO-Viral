@@ -48,6 +48,45 @@ const formatImageUrl = (url) => {
   return "https://" + clean;
 };
 
+// Images for login profile slider showcase (auto-slides every 2s)
+const LOGIN_PROFILE_IMAGES = [
+  {
+    id: 1,
+    src: "/login-profile/profile.jpg",
+    title: "Selected Works",
+    creator: "Ujjwal Prompt",
+    role: "UI & Prompt Studio"
+  },
+  {
+    id: 2,
+    src: "/login-profile/profile2.jpg",
+    title: "Featured Works",
+    creator: "Ujjwal Prompt",
+    role: "UI & Prompt Studio"
+  },
+  {
+    id: 3,
+    src: "/login-profile/profile3.jpg",
+    title: "Creative Prompt",
+    creator: "Ujjwal Prompt",
+    role: "UI & Prompt Studio"
+  },
+  {
+    id: 4,
+    src: "/login-profile/profile4.jpg",
+    title: "Visual Showcase",
+    creator: "Ujjwal Prompt",
+    role: "UI & Prompt Studio"
+  },
+  {
+    id: 5,
+    src: "/login-profile/peofile4.jpg",
+    title: "AI Studio Art",
+    creator: "Ujjwal Prompt",
+    role: "UI & Prompt Studio"
+  }
+];
+
 // Pre-defined initial prompts with curated visual images
 const INITIAL_PROMPTS = [
   {
@@ -186,6 +225,78 @@ export default function Home() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authTab, setAuthTab] = useState("login"); // "login" | "signup"
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", avatar: "" });
+
+  // Dynamic Login Profile folder images state
+  const [profileImages, setProfileImages] = useState(LOGIN_PROFILE_IMAGES);
+  const [authSlideIndex, setAuthSlideIndex] = useState(0);
+  const [isSlideTransitioning, setIsSlideTransitioning] = useState(true);
+
+  // Fetch dynamic image list from login profile folder via backend API route
+  const fetchLoginProfileImages = async () => {
+    try {
+      const res = await fetch("/api/login-profiles");
+      const data = await res.json();
+      if (data.success && data.images && data.images.length > 0) {
+        setProfileImages(data.images);
+      }
+    } catch (err) {
+      console.error("Error loading dynamic login profile images:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchLoginProfileImages();
+  }, [isAuthModalOpen]);
+
+  // Cloned first slide appended to end for seamless continuous forward loop
+  const LOOP_SLIDES = useMemo(() => {
+    if (!profileImages || profileImages.length === 0) return [];
+    return [...profileImages, { ...profileImages[0], isClone: true }];
+  }, [profileImages]);
+
+  const totalImagesCount = profileImages.length;
+  const realSlideIndex = totalImagesCount > 0 ? authSlideIndex % totalImagesCount : 0;
+
+  const handleNextAuthSlide = () => {
+    setIsSlideTransitioning(true);
+    setAuthSlideIndex((prev) => prev + 1);
+  };
+
+  const handlePrevAuthSlide = (e) => {
+    if (e) e.stopPropagation();
+    if (authSlideIndex === 0) {
+      // Snap instantly to cloned end slide with no transition, then smoothly slide to last real index
+      setIsSlideTransitioning(false);
+      setAuthSlideIndex(totalImagesCount);
+      setTimeout(() => {
+        setIsSlideTransitioning(true);
+        setAuthSlideIndex(totalImagesCount - 1);
+      }, 40);
+    } else {
+      setIsSlideTransitioning(true);
+      setAuthSlideIndex((prev) => prev - 1);
+    }
+  };
+
+  // Reset from cloned slide to real slide 0 invisibly once slide animation completes
+  useEffect(() => {
+    if (totalImagesCount > 0 && authSlideIndex === totalImagesCount) {
+      const resetTimer = setTimeout(() => {
+        setIsSlideTransitioning(false);
+        setAuthSlideIndex(0);
+      }, 700); // 700ms matches CSS transition duration
+      return () => clearTimeout(resetTimer);
+    }
+  }, [authSlideIndex, totalImagesCount]);
+
+  // Auto-slide every 2 seconds when auth modal is open
+  useEffect(() => {
+    if (!isAuthModalOpen) return;
+    const slideTimer = setInterval(() => {
+      handleNextAuthSlide();
+    }, 2000);
+    return () => clearInterval(slideTimer);
+  }, [isAuthModalOpen]);
 
   // Real-time Email & DNS MX Validation State
   const [emailValidation, setEmailValidation] = useState({
@@ -1655,11 +1766,50 @@ export default function Home() {
           ) : (
             /* SPLIT SCREEN DESIGN AUTH MODAL (MATCHING REFERENCE UI) */
             <div className="auth-split-modal" onClick={(e) => e.stopPropagation()}>
-              {/* LEFT ARTWORK SHOWCASE PANEL */}
+              {/* LEFT ARTWORK SHOWCASE PANEL WITH DYNAMIC 2s INFINITE LOOP SLIDE ANIMATION */}
               <div className="auth-art-card">
+                {/* SLIDER TRACK FOR INFINITE SEAMLESS LOOP ANIMATION */}
+                <div
+                  className="auth-art-slider-track"
+                  style={{
+                    transform: `translateX(-${authSlideIndex * 100}%)`,
+                    transition: isSlideTransitioning ? "transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)" : "none"
+                  }}
+                >
+                  {LOOP_SLIDES.map((imgItem, idx) => {
+                    const isActive = totalImagesCount > 0 && (idx % totalImagesCount) === realSlideIndex;
+                    return (
+                      <div key={`${imgItem.id}-${idx}`} className={`auth-art-slide ${isActive ? "active" : ""}`}>
+                        <img src={imgItem.src} alt={imgItem.title} className="auth-art-slide-img" />
+                      </div>
+                    );
+                  })}
+                </div>
+
                 <div className="auth-art-card-overlay"></div>
+
                 <div className="auth-art-top-bar">
-                  <span className="auth-art-title">Selected Works</span>
+                  <div className="auth-art-title-container">
+                    <span className="auth-art-title">
+                      {profileImages[realSlideIndex]?.title || "Selected Works"}
+                    </span>
+                    {/* PAGINATION DOTS */}
+                    <div className="auth-art-dots">
+                      {profileImages.map((_, dotIdx) => (
+                        <button
+                          key={dotIdx}
+                          type="button"
+                          className={`auth-art-dot ${dotIdx === realSlideIndex ? "active" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsSlideTransitioning(true);
+                            setAuthSlideIndex(dotIdx);
+                          }}
+                          aria-label={`Go to slide ${dotIdx + 1}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
                   <div className="auth-art-actions">
                     <button type="button" className="auth-art-pill-btn" onClick={() => setAuthTab("signup")}>Sign Up</button>
                     <button type="button" className="auth-art-pill-btn" onClick={() => setAuthTab("signup")}>Join Us</button>
@@ -1669,19 +1819,23 @@ export default function Home() {
                 <div className="auth-art-bottom-bar">
                   <div className="auth-creator-badge">
                     <img
-                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"
-                      alt="Ujjwal UI"
+                      src={profileImages[realSlideIndex]?.src || ""}
+                      alt={profileImages[realSlideIndex]?.creator || "Ujjwal Prompt"}
                       className="auth-creator-avatar"
                     />
                     <div className="auth-creator-info">
-                      <h4>Ujjwal.ui</h4>
-                      <p>UI & Prompt Studio</p>
+                      <h4>{profileImages[realSlideIndex]?.creator || "Ujjwal Prompt"}</h4>
+                      <p>{profileImages[realSlideIndex]?.role || "UI & Prompt Studio"}</p>
                     </div>
                   </div>
 
                   <div className="auth-art-arrows">
-                    <div className="auth-arrow-circle"><ChevronLeft size={16} /></div>
-                    <div className="auth-arrow-circle"><ChevronRight size={16} /></div>
+                    <button type="button" className="auth-arrow-circle" onClick={handlePrevAuthSlide} aria-label="Previous image">
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button type="button" className="auth-arrow-circle" onClick={(e) => { if (e) e.stopPropagation(); handleNextAuthSlide(); }} aria-label="Next image">
+                      <ChevronRight size={16} />
+                    </button>
                   </div>
                 </div>
               </div>
