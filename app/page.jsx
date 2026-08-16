@@ -869,13 +869,19 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
       return;
     }
 
+    const cleanedLikes = typeof formData.likes === "number" ? formData.likes : (parseInt(formData.likes, 10) || 0);
+    const payload = {
+      ...formData,
+      likes: Math.max(0, cleanedLikes)
+    };
+
     try {
       if (editingPromptId) {
         // UPDATE existing prompt via PUT /api/prompts/[id]
         const res = await fetch(`/api/prompts/${editingPromptId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(payload)
         });
         const result = await res.json();
         if (!res.ok || !result.success) {
@@ -894,7 +900,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
         const res = await fetch("/api/prompts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(payload)
         });
         const result = await res.json();
         if (!res.ok || !result.success) {
@@ -1698,21 +1704,44 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                     <button
                       type="button"
                       className="stepper-action-btn"
-                      onClick={() => setFormData({ ...formData, likes: Math.max(0, (formData.likes || 0) - 1) })}
+                      onClick={() => {
+                        const current = typeof formData.likes === "number" ? formData.likes : (parseInt(formData.likes, 10) || 0);
+                        setFormData({ ...formData, likes: Math.max(0, current - 1) });
+                      }}
                     >
                       -
                     </button>
                     <input
                       type="number"
                       min="0"
-                      value={formData.likes || 0}
-                      onChange={(e) => setFormData({ ...formData, likes: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                      value={formData.likes === "" ? "" : formData.likes}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setFormData({ ...formData, likes: "" });
+                        } else {
+                          const cleanStr = raw.replace(/^0+(?=\d)/, "");
+                          const parsed = parseInt(cleanStr, 10);
+                          setFormData({
+                            ...formData,
+                            likes: isNaN(parsed) ? "" : Math.max(0, parsed)
+                          });
+                        }
+                      }}
+                      onBlur={() => {
+                        if (formData.likes === "" || isNaN(formData.likes)) {
+                          setFormData((prev) => ({ ...prev, likes: 0 }));
+                        }
+                      }}
                       style={{ textAlign: "center", fontWeight: "700" }}
                     />
                     <button
                       type="button"
                       className="stepper-action-btn"
-                      onClick={() => setFormData({ ...formData, likes: (formData.likes || 0) + 1 })}
+                      onClick={() => {
+                        const current = typeof formData.likes === "number" ? formData.likes : (parseInt(formData.likes, 10) || 0);
+                        setFormData({ ...formData, likes: current + 1 });
+                      }}
                     >
                       +
                     </button>
