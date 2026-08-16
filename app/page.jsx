@@ -376,7 +376,9 @@ export default function Home() {
     coverStyle: "v-neon",
     imageUrl: "",
     likes: 1,
-    isHtmlMode: false
+    isHtmlMode: false,
+    isImageEditMode: false,
+    isIdentityMode: false
   });
 
   // Adjust Likes (+1 / -1) for any prompt card (Admin Only)
@@ -726,17 +728,65 @@ export default function Home() {
     setTimeout(() => setToast(""), 2200);
   };
 
-  // Copy text prompt to clipboard (supports HTML Web Design Mode prefix)
-  const handleCopy = (text, id = null, isHtmlMode = false) => {
+  // Rule 1: General Image Editing Rule Constant
+  const GENERAL_IMAGE_EDIT_RULE_PREFIX = `IMPORTANT IMAGE EDITING RULE:
+
+Use the uploaded image as the primary source of truth.
+
+Apply ONLY the changes explicitly requested in the user's prompt. Preserve all other original attributes exactly as they appear in the uploaded image, including subject identity, face, body proportions, anatomy, pose, clothing, accessories, hairstyle, object placement, background, composition, camera angle, perspective, framing, lighting, shadows, colors, textures, logos, and fine details.
+
+Do NOT recreate the image from scratch.
+
+Do NOT reinterpret or redesign elements that were not requested to change.
+
+If an attribute is not mentioned in the user's prompt, KEEP IT UNCHANGED.
+
+The user's latest prompt has priority only for the specific elements it explicitly asks to modify.
+
+Maintain maximum visual similarity to the uploaded image while applying the requested changes.
+
+USER PROMPT:
+`;
+
+  // Rule 2: Same Person / Identity Reference Rule Constants
+  const IDENTITY_RULE_PREFIX = `Use my uploaded image as the exact identity reference. Keep the **same face, facial features, skin tone, body type, body shape, proportions, and natural appearance**. Do not change, beautify, slim, reshape, or replace the person.
+
+Only change the **hair, clothes, accessories, pose, background, lighting, and camera angle** as requested.
+
+`;
+
+  const IDENTITY_RULE_SUFFIX = `
+
+**Highest priority: same person, same face, same body type.**`;
+
+  // Copy text prompt to clipboard (supports Image Edit Rule, Identity Rule & HTML Web Design Mode prefixes)
+  const handleCopy = (text, id = null, isHtmlMode = false, isImageEditMode = false, isIdentityMode = false) => {
     let formattedText = text;
-    if (isHtmlMode) {
+
+    if (isIdentityMode && isImageEditMode) {
+      formattedText = GENERAL_IMAGE_EDIT_RULE_PREFIX + IDENTITY_RULE_PREFIX + text + IDENTITY_RULE_SUFFIX;
+    } else if (isIdentityMode) {
+      formattedText = IDENTITY_RULE_PREFIX + text + IDENTITY_RULE_SUFFIX;
+    } else if (isImageEditMode) {
+      formattedText = GENERAL_IMAGE_EDIT_RULE_PREFIX + text;
+    } else if (isHtmlMode) {
       formattedText = "Make a web design in .html using this prompt\n\n" + text;
     }
 
     if (navigator.clipboard) {
       navigator.clipboard.writeText(formattedText);
       setCopiedId(id);
-      showToast(isHtmlMode ? "Copied with HTML Web Design prefix! 💻✨" : "Prompt copied to clipboard! ✨");
+      showToast(
+        isIdentityMode && isImageEditMode
+          ? "Copied with Image Edit & Identity Rules! 🖼️👤"
+          : isIdentityMode
+          ? "Copied with Same Person Identity Rule! 👤✨"
+          : isImageEditMode
+          ? "Copied with Image Editing Rule! 🖼️✨"
+          : isHtmlMode
+          ? "Copied with HTML Web Design prefix! 💻✨"
+          : "Prompt copied to clipboard! ✨"
+      );
       setTimeout(() => setCopiedId(null), 1800);
     }
   };
@@ -765,7 +815,9 @@ export default function Home() {
       coverStyle: "v-neon",
       imageUrl: "",
       likes: 1,
-      isHtmlMode: false
+      isHtmlMode: false,
+      isImageEditMode: false,
+      isIdentityMode: false
     });
     setIsModalOpen(true);
   };
@@ -790,7 +842,9 @@ export default function Home() {
       coverStyle: promptObj.coverStyle || "v-neon",
       imageUrl: promptObj.imageUrl || "",
       likes: promptObj.likes || 1,
-      isHtmlMode: Boolean(promptObj.isHtmlMode)
+      isHtmlMode: Boolean(promptObj.isHtmlMode),
+      isImageEditMode: Boolean(promptObj.isImageEditMode),
+      isIdentityMode: Boolean(promptObj.isIdentityMode)
     });
     setIsModalOpen(true);
   };
@@ -1199,8 +1253,8 @@ export default function Home() {
                   <div className="card-top-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       className={`icon-btn ${copiedId === p.id ? "copied" : ""}`}
-                      onClick={() => handleCopy(p.text, p.id, p.isHtmlMode)}
-                      title={p.isHtmlMode ? "Copy Prompt (HTML Mode ON)" : "Copy Prompt Text"}
+                      onClick={() => handleCopy(p.text, p.id, p.isHtmlMode, p.isImageEditMode, p.isIdentityMode)}
+                      title={p.isIdentityMode ? "Copy Prompt (Same Person Identity Rule ON)" : p.isImageEditMode ? "Copy Prompt (Image Edit Rule ON)" : p.isHtmlMode ? "Copy Prompt (HTML Mode ON)" : "Copy Prompt Text"}
                     >
                       {copiedId === p.id ? <Check size={14} /> : <Copy size={14} />}
                     </button>
@@ -1357,9 +1411,63 @@ export default function Home() {
                       <span>HTML Mode: {selected.isHtmlMode ? "ON 🟢" : "OFF ⚪"}</span>
                     </button>
 
+                    <button
+                      type="button"
+                      className={`html-mode-chip ${selected.isImageEditMode ? "active" : ""}`}
+                      style={selected.isImageEditMode ? { borderColor: "#00e5ff", color: "#00e5ff", background: "rgba(0, 229, 255, 0.1)" } : {}}
+                      onClick={() => {
+                        const updatedImgMode = !selected.isImageEditMode;
+                        const updatedSelected = { ...selected, isImageEditMode: updatedImgMode };
+                        setSelected(updatedSelected);
+                        const updatedPrompts = prompts.map((p) => (p.id === selected.id ? updatedSelected : p));
+                        savePromptsToStorage(updatedPrompts);
+                        fetch(`/api/prompts/${selected.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "update", promptData: updatedSelected })
+                        }).catch(() => {});
+                        showToast(updatedImgMode ? "Image Edit Rule ON 🟢" : "Image Edit Rule OFF ⚪");
+                      }}
+                    >
+                      <Camera size={14} />
+                      <span>Image Edit Rule: {selected.isImageEditMode ? "ON 🟢" : "OFF ⚪"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`html-mode-chip ${selected.isIdentityMode ? "active" : ""}`}
+                      style={selected.isIdentityMode ? { borderColor: "#a855f7", color: "#a855f7", background: "rgba(168, 85, 247, 0.1)" } : {}}
+                      onClick={() => {
+                        const updatedIdent = !selected.isIdentityMode;
+                        const updatedSelected = { ...selected, isIdentityMode: updatedIdent };
+                        setSelected(updatedSelected);
+                        const updatedPrompts = prompts.map((p) => (p.id === selected.id ? updatedSelected : p));
+                        savePromptsToStorage(updatedPrompts);
+                        fetch(`/api/prompts/${selected.id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "update", promptData: updatedSelected })
+                        }).catch(() => {});
+                        showToast(updatedIdent ? "Identity Reference Rule ON 🟢" : "Identity Reference Rule OFF ⚪");
+                      }}
+                    >
+                      <User size={14} />
+                      <span>Same Person Rule: {selected.isIdentityMode ? "ON 🟢" : "OFF ⚪"}</span>
+                    </button>
+
                     {selected.isHtmlMode && (
                       <span className="html-mode-prefix-notice">
                         "Make a web design in .html using this prompt"
+                      </span>
+                    )}
+                    {selected.isImageEditMode && (
+                      <span className="html-mode-prefix-notice" style={{ color: "#00e5ff" }}>
+                        "IMPORTANT IMAGE EDITING RULE: ..."
+                      </span>
+                    )}
+                    {selected.isIdentityMode && (
+                      <span className="html-mode-prefix-notice" style={{ color: "#a855f7" }}>
+                        "Use my uploaded image as the exact identity reference..."
                       </span>
                     )}
                   </div>
@@ -1367,7 +1475,7 @@ export default function Home() {
 
                 <div className="prompt-label">
                   <span>Prompt Text</span>
-                  <button className="mini-copy" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode)}>
+                  <button className="mini-copy" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode)}>
                     {copiedId === selected.id ? <Check size={13} /> : <Copy size={13} />}
                     {copiedId === selected.id ? " Copied!" : " Copy"}
                   </button>
@@ -1388,7 +1496,7 @@ export default function Home() {
               )}
 
               <div className="modal-action-bar">
-                <button className="copybig" onClick={() => handleCopy(selected.text, selected.id)}>
+                <button className="copybig" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode)}>
                   <Copy size={17} /> Copy Prompt
                 </button>
 
@@ -1539,17 +1647,63 @@ export default function Home() {
                       <span>{formData.isHtmlMode ? "ON 🟢" : "OFF ⚪"}</span>
                     </button>
                   </div>
-                  <p className="field-help-text">
-                    {formData.isHtmlMode ? (
+                  {formData.isHtmlMode && (
+                    <p className="field-help-text">
                       <span className="html-status-active">
                         ✅ <strong>HTML Mode ON:</strong> When copied, automatically prepends: <code>"Make a web design in .html using this prompt"</code>
                       </span>
-                    ) : (
-                      <span className="html-status-inactive">
-                        ⚡ <strong>HTML Mode OFF:</strong> Copies standard raw prompt text without prefix.
+                    </p>
+                  )}
+                </div>
+
+                {/* IMAGE EDITING RULE MODE TOGGLE (ON / OFF) */}
+                <div className="field-group">
+                  <div className="html-mode-toggle-label">
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Camera size={16} style={{ color: "#00e5ff" }} />
+                      General Image Editing Rule Mode
+                    </span>
+                    <button
+                      type="button"
+                      className={`html-toggle-btn ${formData.isImageEditMode ? "on" : "off"}`}
+                      onClick={() => setFormData({ ...formData, isImageEditMode: !formData.isImageEditMode })}
+                    >
+                      {formData.isImageEditMode ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                      <span>{formData.isImageEditMode ? "ON 🟢" : "OFF ⚪"}</span>
+                    </button>
+                  </div>
+                  {formData.isImageEditMode && (
+                    <p className="field-help-text">
+                      <span className="html-status-active" style={{ color: "#00e5ff" }}>
+                        ✅ <strong>Image Edit Rule ON:</strong> When copied, automatically prepends General Image Editing Rule: <code>"IMPORTANT IMAGE EDITING RULE: ..."</code>
                       </span>
-                    )}
-                  </p>
+                    </p>
+                  )}
+                </div>
+
+                {/* SAME PERSON / IDENTITY REFERENCE MODE TOGGLE (ON / OFF) */}
+                <div className="field-group">
+                  <div className="html-mode-toggle-label">
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <User size={16} style={{ color: "#a855f7" }} />
+                      Same Person Identity Rule Mode
+                    </span>
+                    <button
+                      type="button"
+                      className={`html-toggle-btn ${formData.isIdentityMode ? "on" : "off"}`}
+                      onClick={() => setFormData({ ...formData, isIdentityMode: !formData.isIdentityMode })}
+                    >
+                      {formData.isIdentityMode ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                      <span>{formData.isIdentityMode ? "ON 🟢" : "OFF ⚪"}</span>
+                    </button>
+                  </div>
+                  {formData.isIdentityMode && (
+                    <p className="field-help-text">
+                      <span className="html-status-active" style={{ color: "#a855f7" }}>
+                        ✅ <strong>Identity Rule ON:</strong> When copied, automatically wraps prompt with identity rule: <code>"Use my uploaded image as the exact identity reference..."</code>
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 {/* COVER STYLE & IMAGE SELECTOR */}
