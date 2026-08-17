@@ -220,6 +220,14 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [copiedId, setCopiedId] = useState(null);
 
+  // Copy Customization Modal State (for Alpha & Customizable prompts)
+  const [isCopyCustomizeModalOpen, setIsCopyCustomizeModalOpen] = useState(false);
+  const [copyTargetPrompt, setCopyTargetPrompt] = useState(null);
+  const [customBgText, setCustomBgText] = useState("Ujjwal");
+  const [customBgColor, setCustomBgColor] = useState("blue");
+  const [customBgTextStyle, setCustomBgTextStyle] = useState("upward curve");
+  const [customHatStyle, setCustomHatStyle] = useState("knitted beanie");
+
   // Automatic Image Optimizer State
   const [optReport, setOptReport] = useState(null);
   const [isOptimizerModalOpen, setIsOptimizerModalOpen] = useState(false);
@@ -767,8 +775,41 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
 
 **Highest priority: same person, same face, same body type.**`;
 
-  // Copy text prompt to clipboard (supports Image Edit Rule, Identity Rule & HTML Web Design Mode prefixes)
-  const handleCopy = (text, id = null, isHtmlMode = false, isImageEditMode = false, isIdentityMode = false) => {
+  // Helper to check if a prompt is customizable (e.g. Alpha prompt or containing background text/color JSON)
+  const isCustomizablePrompt = (text, promptObj = null) => {
+    if (!text || typeof text !== "string") return false;
+    if (promptObj?.title?.toLowerCase() === "alpha") return true;
+    if (text.includes('"decorative_element"') || text.includes('"main_text"') || text.includes("Ujjwal") || text.includes("ALPHA")) return true;
+    return false;
+  };
+
+  // Copy text prompt to clipboard (supports Popup Modal for Alpha/Customizable prompts, Image Edit Rule, Identity Rule & HTML Web Design Mode prefixes)
+  const handleCopy = (text, id = null, isHtmlMode = false, isImageEditMode = false, isIdentityMode = false, promptObj = null, forceDirect = false) => {
+    // If it's the Alpha prompt or customizable prompt and not forced direct copy, open popup box!
+    if (!forceDirect && isCustomizablePrompt(text, promptObj)) {
+      setCopyTargetPrompt({ text, id, isHtmlMode, isImageEditMode, isIdentityMode, promptObj });
+      
+      // Extract initial main_text & headwear.type if possible
+      let defaultText = "Ujjwal";
+      let defaultHat = "knitted beanie";
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed?.decorative_element?.main_text) {
+          defaultText = parsed.decorative_element.main_text;
+        }
+        if (parsed?.headwear?.type) {
+          defaultHat = parsed.headwear.type;
+        }
+      } catch (e) {}
+
+      setCustomBgText(defaultText);
+      setCustomBgColor("blue");
+      setCustomBgTextStyle("upward curve");
+      setCustomHatStyle(defaultHat);
+      setIsCopyCustomizeModalOpen(true);
+      return;
+    }
+
     let formattedText = text;
 
     if (isIdentityMode && isImageEditMode) {
@@ -797,6 +838,159 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
       );
       setTimeout(() => setCopiedId(null), 1800);
     }
+  };
+
+  // Perform customized copy from the Popup Modal
+  const executeCustomizedCopy = (applyCustomizations = true) => {
+    if (!copyTargetPrompt) return;
+    const { text, id, isHtmlMode, isImageEditMode, isIdentityMode } = copyTargetPrompt;
+
+    let modifiedText = text;
+
+    if (applyCustomizations) {
+      const newTextVal = customBgText.trim() || "Ujjwal";
+      const newColorVal = customBgColor.trim() || "blue";
+      const curveStyleVal = customBgTextStyle || "upward curve";
+
+      let posText = "mounted/floating in an elegant upward curve across the upper background";
+      let shapeText = "large inflated rounded letters arranged in a smooth upward curve";
+      let bgPosText = `${newTextVal} positioned in a gentle upward curve above the subject`;
+
+      if (curveStyleVal === "wave curve") {
+        posText = "mounted/floating in a stylish wave curve across the upper background";
+        shapeText = "large inflated rounded letters arranged in a subtle wave pattern";
+        bgPosText = `${newTextVal} positioned in a stylish wave pattern above the subject`;
+      } else if (curveStyleVal === "circular arc") {
+        posText = "mounted/floating in a wide circular arc surrounding the upper subject";
+        shapeText = "large inflated rounded letters forming an arched circular halo";
+        bgPosText = `${newTextVal} positioned in a circular arc above the subject`;
+      } else if (curveStyleVal === "straight line") {
+        posText = "mounted/floating horizontally in a straight line across the upper background";
+        shapeText = "large inflated rounded letters in a straight row";
+        bgPosText = `${newTextVal} positioned horizontally above the subject`;
+      }
+
+      // 1. Try parsing JSON to replace structured fields cleanly
+      let isJsonUpdated = false;
+      try {
+        const parsed = JSON.parse(text);
+
+        // Update decorative_element.main_text, position, and shape
+        if (parsed.decorative_element) {
+          parsed.decorative_element.main_text = newTextVal;
+          parsed.decorative_element.position = posText;
+          parsed.decorative_element.shape = shapeText;
+        }
+
+        // Update composition text positions & visual hierarchy
+        if (parsed.composition) {
+          parsed.composition.background_text_position = bgPosText;
+          if (Array.isArray(parsed.composition.visual_hierarchy)) {
+            parsed.composition.visual_hierarchy = parsed.composition.visual_hierarchy.map(item => {
+              if (typeof item === "string") {
+                let updated = item.replace(/gold\s+(?:Ujjwal|UJJWAL|ALPHA|targeta)\s+balloon\s+letters/gi, `gold ${newTextVal} balloon letters`);
+                if (newColorVal && newColorVal.toLowerCase() !== "blue") {
+                  updated = updated.replace(/bright\s+blue\s+environment/gi, `bright ${newColorVal} environment`);
+                }
+                return updated;
+              }
+              return item;
+            });
+          }
+        }
+
+        // Update negative prompt misspelled word
+        if (Array.isArray(parsed.negative_prompt)) {
+          parsed.negative_prompt = parsed.negative_prompt.map(item => {
+            if (typeof item === "string" && /misspelled/i.test(item)) {
+              return `misspelled ${newTextVal}`;
+            }
+            return item;
+          });
+        }
+
+        // Update color fields in environment, eyewear, visual_style, important_rules
+        if (newColorVal && newColorVal.toLowerCase() !== "blue") {
+          if (parsed.environment) {
+            if (parsed.environment.location) parsed.environment.location = parsed.environment.location.replace(/\bblue\b/gi, newColorVal);
+            if (parsed.environment.walls) parsed.environment.walls = parsed.environment.walls.replace(/\bblue\b/gi, newColorVal);
+            if (parsed.environment.floor) parsed.environment.floor = parsed.environment.floor.replace(/\bblue\b/gi, newColorVal);
+            if (parsed.environment.background) parsed.environment.background = parsed.environment.background.replace(/\bblue\b/gi, newColorVal);
+          }
+          if (parsed.eyewear && parsed.eyewear.reflection) {
+            parsed.eyewear.reflection = parsed.eyewear.reflection.replace(/\bblue\b/gi, newColorVal);
+          }
+          if (parsed.visual_style) {
+            if (Array.isArray(parsed.visual_style.color_palette)) {
+              parsed.visual_style.color_palette = parsed.visual_style.color_palette.map(c => c.replace(/electric\s+blue|blue/gi, newColorVal));
+            }
+          }
+          if (Array.isArray(parsed.important_rules)) {
+            parsed.important_rules = parsed.important_rules.map(rule => rule.replace(/blue\s+studio\s+environment/gi, `${newColorVal} studio environment`));
+          }
+        }
+
+        // Update headwear / hat style
+        const hatVal = customHatStyle.trim() || "knitted beanie";
+        if (parsed.headwear) {
+          parsed.headwear.type = hatVal;
+          const hLower = hatVal.toLowerCase();
+          if (hLower.includes("beanie")) {
+            parsed.headwear.color = "blue, white and black horizontal stripes";
+            parsed.headwear.style = "retro Y2K streetwear";
+          } else if (hLower.includes("cap") || hLower.includes("baseball")) {
+            parsed.headwear.color = "black leather with embroidered varsity letter";
+            parsed.headwear.style = "Y2K streetwear cap";
+          } else if (hLower.includes("bucket")) {
+            parsed.headwear.color = "dark blue denim bucket hat";
+            parsed.headwear.style = "2000s urban streetwear";
+          } else if (hLower.includes("visor")) {
+            parsed.headwear.color = "black and metallic blue sports visor";
+            parsed.headwear.style = "cyberpunk futuristic visor";
+          } else if (hLower.includes("bandana")) {
+            parsed.headwear.color = "blue and black paisley pattern bandana";
+            parsed.headwear.style = "retro Y2K hip-hop bandana";
+          } else if (hLower.includes("beret")) {
+            parsed.headwear.color = "black wool beret";
+            parsed.headwear.style = "fashion editorial beret";
+          } else if (hLower.includes("none") || hLower.includes("no headwear")) {
+            parsed.headwear.type = "none";
+            parsed.headwear.color = "natural hair color";
+            parsed.headwear.style = "stylish Y2K natural haircut";
+          }
+        }
+
+        modifiedText = JSON.stringify(parsed, null, 2);
+        isJsonUpdated = true;
+      } catch (e) {
+        // Fallback string replacement
+      }
+
+      if (!isJsonUpdated) {
+        // String replacement fallbacks
+        modifiedText = modifiedText
+          .replace(/Ujjwal/gi, newTextVal)
+          .replace(/ALPHA/g, newTextVal)
+          .replace(/targeta/gi, newTextVal);
+
+        if (newColorVal && newColorVal.toLowerCase() !== "blue") {
+          modifiedText = modifiedText
+            .replace(/electric blue/gi, newColorVal)
+            .replace(/bright saturated blue walls/gi, `bright saturated ${newColorVal} walls`)
+            .replace(/matching blue floor/gi, `matching ${newColorVal} floor`)
+            .replace(/simple blue corner environment/gi, `simple ${newColorVal} corner environment`)
+            .replace(/reflections of the blue environment/gi, `reflections of the ${newColorVal} environment`)
+            .replace(/bright blue environment/gi, `bright ${newColorVal} environment`)
+            .replace(/blue studio room/gi, `${newColorVal} studio room`)
+            .replace(/blue studio environment/gi, `${newColorVal} studio environment`);
+        }
+      }
+    }
+
+    // Now copy modifiedText using forceDirect = true
+    handleCopy(modifiedText, id, isHtmlMode, isImageEditMode, isIdentityMode, null, true);
+    setIsCopyCustomizeModalOpen(false);
+    showToast(`Copied customized prompt! (${customBgText} / ${customBgColor}) ✨`);
   };
 
   // Check if current user is logged in as Admin (ujjwal@gmail.com)
@@ -1333,7 +1527,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                   <div className="card-top-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       className={`icon-btn ${copiedId === p.id ? "copied" : ""}`}
-                      onClick={() => handleCopy(p.text, p.id, p.isHtmlMode, p.isImageEditMode, p.isIdentityMode)}
+                      onClick={() => handleCopy(p.text, p.id, p.isHtmlMode, p.isImageEditMode, p.isIdentityMode, p)}
                       title={p.isIdentityMode ? "Copy Prompt (Same Person Identity Rule ON)" : p.isImageEditMode ? "Copy Prompt (Image Edit Rule ON)" : p.isHtmlMode ? "Copy Prompt (HTML Mode ON)" : "Copy Prompt Text"}
                     >
                       {copiedId === p.id ? <Check size={14} /> : <Copy size={14} />}
@@ -1555,7 +1749,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
 
                 <div className="prompt-label">
                   <span>Prompt Text</span>
-                  <button className="mini-copy" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode)}>
+                  <button className="mini-copy" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode, selected)}>
                     {copiedId === selected.id ? <Check size={13} /> : <Copy size={13} />}
                     {copiedId === selected.id ? " Copied!" : " Copy"}
                   </button>
@@ -1590,7 +1784,7 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
               )}
 
               <div className="modal-action-bar">
-                <button className="copybig" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode)}>
+                <button className="copybig" onClick={() => handleCopy(selected.text, selected.id, selected.isHtmlMode, selected.isImageEditMode, selected.isIdentityMode, selected)}>
                   <Copy size={17} /> Copy Prompt
                 </button>
 
@@ -2504,6 +2698,229 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* COPY CUSTOMIZATION MODAL (FOR ALPHA PROMPT) */}
+      {isCopyCustomizeModalOpen && copyTargetPrompt && (
+        <div className="modalbg" onClick={() => setIsCopyCustomizeModalOpen(false)}>
+          <div className="custom-copy-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="custom-copy-header">
+              <div className="custom-copy-title-group">
+                <div className="custom-copy-icon-wrap">
+                  <Sparkles size={24} className="sparkle-anim" />
+                </div>
+                <div>
+                  <h2>Customize Alpha Prompt</h2>
+                  <p>Change background balloon text & studio color before copying</p>
+                </div>
+              </div>
+              <button className="profile-close-btn" onClick={() => setIsCopyCustomizeModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="custom-copy-body">
+              {/* FIELD 1: BACKGROUND TEXT */}
+              <div className="custom-field-card">
+                <div className="custom-field-label">
+                  <span className="field-badge">1</span>
+                  <label htmlFor="bgTextInput">Background Text (Balloon Letters)</label>
+                </div>
+                <p className="custom-field-desc">
+                  Enter any name or word to replace <strong>"Ujjwal"</strong> in 3D gold inflatable balloon letters across the background.
+                </p>
+                <input
+                  id="bgTextInput"
+                  type="text"
+                  className="custom-text-input"
+                  value={customBgText}
+                  onChange={(e) => setCustomBgText(e.target.value)}
+                  placeholder="e.g. Ujjwal, ALEX, HERO, LEGEND..."
+                  maxLength={30}
+                />
+                
+                {/* QUICK TAG SUGGESTIONS */}
+                <div className="quick-text-tags">
+                  <span className="tags-label">Quick Ideas:</span>
+                  {["Ujjwal", "ALPHA", "SUPREME", "LEGEND", "VIP", "BOSS", "HERO", "ROYAL"].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={`text-tag-pill ${customBgText === tag ? "active" : ""}`}
+                      onClick={() => setCustomBgText(tag)}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* FIELD 2: BACKGROUND COLOUR */}
+              <div className="custom-field-card">
+                <div className="custom-field-label">
+                  <span className="field-badge">2</span>
+                  <label htmlFor="bgColorInput">Studio Background & Environment Colour</label>
+                </div>
+                <p className="custom-field-desc">
+                  Pick or type a background color to replace <strong>"blue"</strong> in the studio walls, floor & light reflections.
+                </p>
+
+                {/* COLOR PRESET PILLS */}
+                <div className="color-preset-grid">
+                  {[
+                    { name: "Electric Blue", value: "blue", hex: "#0066ff" },
+                    { name: "Crimson Red", value: "red", hex: "#ff2a5f" },
+                    { name: "Neon Pink", value: "neon pink", hex: "#ff2a8d" },
+                    { name: "Cyber Purple", value: "purple", hex: "#8a2be2" },
+                    { name: "Emerald Green", value: "emerald green", hex: "#00e676" },
+                    { name: "Golden Yellow", value: "gold", hex: "#ffd700" },
+                    { name: "Dark Obsidian", value: "black", hex: "#1e1e2d" },
+                    { name: "Studio White", value: "white", hex: "#e2e8f0" },
+                  ].map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      className={`color-pill ${customBgColor.toLowerCase() === c.value.toLowerCase() ? "selected" : ""}`}
+                      onClick={() => setCustomBgColor(c.value)}
+                    >
+                      <span className="color-dot" style={{ background: c.hex }} />
+                      <span>{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  id="bgColorInput"
+                  type="text"
+                  className="custom-text-input mt-2"
+                  value={customBgColor}
+                  onChange={(e) => setCustomBgColor(e.target.value)}
+                  placeholder="Or type custom color (e.g. sunset orange, teal, magenta)..."
+                />
+              </div>
+
+              {/* FIELD 3: BACKGROUND TEXT CURVE STYLE */}
+              <div className="custom-field-card">
+                <div className="custom-field-label">
+                  <span className="field-badge">3</span>
+                  <label>Background Text Curve & Layout Style</label>
+                </div>
+                <p className="custom-field-desc">
+                  Choose how the 3D balloon text curves across the background.
+                </p>
+
+                <div className="color-preset-grid">
+                  {[
+                    { name: "🌙 Upward Curve", value: "upward curve" },
+                    { name: "🌊 Wave Curve", value: "wave curve" },
+                    { name: "⭕ Circular Arc", value: "circular arc" },
+                    { name: "📏 Straight Line", value: "straight line" },
+                  ].map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      className={`color-pill ${customBgTextStyle === s.value ? "selected" : ""}`}
+                      onClick={() => setCustomBgTextStyle(s.value)}
+                    >
+                      <span>{s.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* FIELD 4: HAT / HEADWEAR STYLE */}
+              <div className="custom-field-card">
+                <div className="custom-field-label">
+                  <span className="field-badge">4</span>
+                  <label htmlFor="hatStyleInput">Hat & Headwear Style</label>
+                </div>
+                <p className="custom-field-desc">
+                  Choose or enter a hat / headwear style (e.g. beanie, cap, bucket hat, visor, bandana).
+                </p>
+
+                {/* HAT PRESET PILLS */}
+                <div className="color-preset-grid">
+                  {[
+                    { name: "🧢 Knitted Beanie", value: "knitted beanie" },
+                    { name: "🧢 Varsity Cap", value: "varsity baseball cap" },
+                    { name: "🪖 Bucket Hat", value: "streetwear bucket hat" },
+                    { name: "🕶️ Sports Visor", value: "futuristic sports visor" },
+                    { name: "👑 Paisley Bandana", value: "paisley bandana" },
+                    { name: "🎨 Fashion Beret", value: "black wool beret" },
+                    { name: "🚫 No Headwear", value: "none (natural hair)" },
+                  ].map((h) => (
+                    <button
+                      key={h.value}
+                      type="button"
+                      className={`color-pill ${customHatStyle.toLowerCase() === h.value.toLowerCase() ? "selected" : ""}`}
+                      onClick={() => setCustomHatStyle(h.value)}
+                    >
+                      <span>{h.name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  id="hatStyleInput"
+                  type="text"
+                  className="custom-text-input mt-2"
+                  value={customHatStyle}
+                  onChange={(e) => setCustomHatStyle(e.target.value)}
+                  placeholder="Or type custom hat style (e.g. cowboy hat, aviator cap)..."
+                />
+              </div>
+
+              {/* LIVE PREVIEW BOX */}
+              <div className="custom-preview-box">
+                <div className="preview-header">
+                  <span>LIVE PROMPT PREVIEW</span>
+                  <span className="preview-status">Active Customizations</span>
+                </div>
+                <div className="preview-chips">
+                  <div className="chip">
+                    <span className="chip-key">Main Text:</span>
+                    <span className="chip-val text-highlight">"{customBgText.trim() || 'Ujjwal'}"</span>
+                  </div>
+                  <div className="chip">
+                    <span className="chip-key">Studio Color:</span>
+                    <span className="chip-val color-highlight">"{customBgColor.trim() || 'blue'}"</span>
+                  </div>
+                  <div className="chip">
+                    <span className="chip-key">Hat Style:</span>
+                    <span className="chip-val text-emerald-400 font-bold">"{customHatStyle.trim() || 'knitted beanie'}"</span>
+                  </div>
+                </div>
+                <div className="preview-snippet">
+                  <code>
+                    "main_text": "{customBgText.trim() || 'Ujjwal'}"<br />
+                    "headwear": &#123; "type": "{customHatStyle.trim() || 'knitted beanie'}" &#125;<br />
+                    "position": "mounted/floating in an elegant {customBgTextStyle} across the upper background"<br />
+                    "environment": &#123; "walls": "bright saturated {customBgColor.trim() || 'blue'} walls" &#125;
+                  </code>
+                </div>
+              </div>
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div className="custom-copy-footer">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => executeCustomizedCopy(false)}
+                title="Copy original prompt without replacing text or color"
+              >
+                Copy Default Prompt
+              </button>
+              <button
+                type="button"
+                className="primary-copy-btn"
+                onClick={() => executeCustomizedCopy(true)}
+              >
+                <Copy size={16} /> Copy Customized Prompt
+              </button>
+            </div>
           </div>
         </div>
       )}
