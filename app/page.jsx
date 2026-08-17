@@ -2872,35 +2872,37 @@ Only change the **hair, clothes, accessories, pose, background, lighting, and ca
                 />
               </div>
 
-              {/* LIVE PREVIEW BOX */}
-              <div className="custom-preview-box">
-                <div className="preview-header">
-                  <span>LIVE PROMPT PREVIEW</span>
-                  <span className="preview-status">Active Customizations</span>
-                </div>
-                <div className="preview-chips">
-                  <div className="chip">
-                    <span className="chip-key">Main Text:</span>
-                    <span className="chip-val text-highlight">"{customBgText.trim() || 'Ujjwal'}"</span>
+              {/* LIVE PREVIEW BOX (ADMIN ONLY) */}
+              {isAdmin && (
+                <div className="custom-preview-box">
+                  <div className="preview-header">
+                    <span>LIVE PROMPT PREVIEW</span>
+                    <span className="preview-status">Active Customizations</span>
                   </div>
-                  <div className="chip">
-                    <span className="chip-key">Studio Color:</span>
-                    <span className="chip-val color-highlight">"{customBgColor.trim() || 'blue'}"</span>
+                  <div className="preview-chips">
+                    <div className="chip">
+                      <span className="chip-key">Main Text:</span>
+                      <span className="chip-val text-highlight">"{customBgText.trim() || 'Ujjwal'}"</span>
+                    </div>
+                    <div className="chip">
+                      <span className="chip-key">Studio Color:</span>
+                      <span className="chip-val color-highlight">"{customBgColor.trim() || 'blue'}"</span>
+                    </div>
+                    <div className="chip">
+                      <span className="chip-key">Hat Style:</span>
+                      <span className="chip-val text-emerald-400 font-bold">"{customHatStyle.trim() || 'knitted beanie'}"</span>
+                    </div>
                   </div>
-                  <div className="chip">
-                    <span className="chip-key">Hat Style:</span>
-                    <span className="chip-val text-emerald-400 font-bold">"{customHatStyle.trim() || 'knitted beanie'}"</span>
+                  <div className="preview-snippet">
+                    <code>
+                      "main_text": "{customBgText.trim() || 'Ujjwal'}"<br />
+                      "headwear": &#123; "type": "{customHatStyle.trim() || 'knitted beanie'}" &#125;<br />
+                      "position": "mounted/floating in an elegant {customBgTextStyle} across the upper background"<br />
+                      "environment": &#123; "walls": "bright saturated {customBgColor.trim() || 'blue'} walls" &#125;
+                    </code>
                   </div>
                 </div>
-                <div className="preview-snippet">
-                  <code>
-                    "main_text": "{customBgText.trim() || 'Ujjwal'}"<br />
-                    "headwear": &#123; "type": "{customHatStyle.trim() || 'knitted beanie'}" &#125;<br />
-                    "position": "mounted/floating in an elegant {customBgTextStyle} across the upper background"<br />
-                    "environment": &#123; "walls": "bright saturated {customBgColor.trim() || 'blue'} walls" &#125;
-                  </code>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* MODAL FOOTER */}
